@@ -1,5 +1,9 @@
 # Changelog — Curated by Muse
 
+## Unreleased — 2026-11-02
+- Explain HTTP 403 store restrictions in product card status and direct users to existing manual edit action; preserve previously saved data.
+
+
 Summarized from existing repository README and verified code. Dates are approximate for historical versions; keep future entries dated.
 
 ## v26 — 2026-10-29
