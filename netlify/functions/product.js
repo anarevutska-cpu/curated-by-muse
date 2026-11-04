@@ -5,6 +5,21 @@ function meta(html,key){for(const tag of html.match(/<meta\b[^>]*>/gi)||[]){cons
 function productNodes(obj,out=[]){if(!obj||typeof obj!=='object')return out;if(Array.isArray(obj)){for(const v of obj)productNodes(v,out);return out}const t=obj['@type'];if((Array.isArray(t)?t:[t]).some(v=>typeof v==='string'&&v.toLowerCase()==='product'))out.push(obj);if(obj['@graph'])productNodes(obj['@graph'],out);return out}
 function jsonld(html){const nodes=[];for(const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)){try{productNodes(JSON.parse(match[1].trim()),nodes)}catch{}}return nodes[0]||null}
 function imageUrl(value,base){let v=Array.isArray(value)?value[0]:value;if(v&&typeof v==='object')v=v.url||v.contentUrl;if(typeof v!=='string'||!v.trim()||v.trim().toLowerCase()==='null')return null;try{const u=new URL(v,base);return u.protocol==='https:'&&u.href!==base.href&&u.pathname!==base.pathname&&(u.hostname===base.hostname||(['damnjewelry.com','www.damnjewelry.com'].includes(base.hostname)&&/^(?:images-cdn\.ecwid\.com|d2j6dbq0eux0bg\.cloudfront\.net)$/.test(u.hostname))||(/(^|\.)zarahome\.com$/.test(base.hostname)&&/^(?:static\.zarahome\.net|static\.zarahome\.com|www\.zarahome\.com|zarahome\.com)$/.test(u.hostname)))&&!/\/null(?:[?#]|$)/i.test(u.pathname)?u.href:null}catch{return null}}
+// Ecwid pages can expose the exact product photo in embedded HTML rather than JSON-LD.
+function ecwidImage(html,pageUrl){
+  if(!['damnjewelry.com','www.damnjewelry.com'].includes(pageUrl.hostname))return null;
+  const id=pageUrl.pathname.match(/-p(\d+)\/?$/i)?.[1];
+  if(!id)return null;
+  const normalized=html.replace(/\\\//g,'/').replace(/\\u002F/gi,'/');
+  const urls=normalized.match(/https:\/\/(?:d2j6dbq0eux0bg\.cloudfront\.net|images-cdn\.ecwid\.com)\/[^\s"'<>\\]+/gi)||[];
+  for(const candidate of urls){
+    try{
+      const u=new URL(candidate.replace(/&amp;/g,'&'));
+      if(u.pathname.includes('/products/'+id+'/')&&/\.(?:png|jpe?g|webp)$/i.test(u.pathname))return u.href;
+    }catch{}
+  }
+  return null;
+}
 function metaPrice(html){const amount=meta(html,'product:price:amount')||meta(html,'og:price:amount');const currency=meta(html,'product:price:currency')||meta(html,'og:price:currency');if(!amount||!currency)return {};const n=Number(String(amount).replace(',','.'));return Number.isFinite(n)&&n>=0&&/^[A-Z]{3}$/.test(currency)?{price:n,currency}:{} }
 function parseOffer(p){let offers=p?.offers;if(Array.isArray(offers))offers=offers[0];if(offers?.offers&&Array.isArray(offers.offers))offers=offers.offers[0];if(!offers||typeof offers!=='object')return {};const raw=offers.price??offers.priceSpecification?.price??offers.lowPrice;const price=raw==null?null:Number(String(raw).replace(',','.'));const currency=offers.priceCurrency||offers.priceSpecification?.priceCurrency||null;const availability=String(offers.availability||'').toLowerCase();const stock=availability.includes('instock')?'yes':availability.includes('outofstock')||availability.includes('soldout')?'no':'unknown';return {price:Number.isFinite(price)&&price>=0?price:null,currency:/^[A-Z]{3}$/.test(currency||'')?currency:null,stock}}
 // Zara Home public catalog endpoint. UA and PL identifiers captured from store Network requests.
@@ -72,7 +87,7 @@ exports.handler=async event=>{
     const html=(await res.text()).slice(0,2500000);
     const p=jsonld(html);
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
-    const image=imageUrl(p?.image||meta(html,'og:image')||meta(html,'twitter:image'),url);
+    const image=ecwidImage(html,url)||imageUrl(p?.image||meta(html,'og:image')||meta(html,'twitter:image'),url);
     const offer={...metaPrice(html),...Object.fromEntries(Object.entries(parseOffer(p)).filter(([k,v])=>v!==null&&v!==undefined))};
     // Zara HTML metadata may describe a different variant; never substitute its image/price.
     const variantSafe=!variant;
@@ -80,4 +95,4 @@ exports.handler=async event=>{
   }catch(err){return {statusCode:200,headers,body:JSON.stringify({ok:false,message:'Could not read store page',diagnostics:{error:String(err.message||err)}})}}
 };
 // Exposed only for local tests; not used by Netlify runtime.
-exports._test={zaraVariant,parseZaraCatalog};
+exports._test={zaraVariant,parseZaraCatalog,ecwidImage};
