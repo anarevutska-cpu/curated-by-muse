@@ -21,6 +21,22 @@ function ecwidImage(html,pageUrl){
   return null;
 }
 function metaPrice(html){const amount=meta(html,'product:price:amount')||meta(html,'og:price:amount');const currency=meta(html,'product:price:currency')||meta(html,'og:price:currency');if(!amount||!currency)return {};const n=Number(String(amount).replace(',','.'));return Number.isFinite(n)&&n>=0&&/^[A-Z]{3}$/.test(currency)?{price:n,currency}:{} }
+// WooCommerce: use price from the single product's own summary, never from recommendations.
+function artHallPrice(html,pageUrl){
+  if(!['art-hall.store','www.art-hall.store'].includes(pageUrl.hostname)||!pageUrl.pathname.startsWith('/product/'))return null;
+  const summary=html.match(/<div\b[^>]*class=["'][^"']*\bsummary\b[^"']*\bentry-summary\b[^"']*["'][^>]*>([\s\S]*?)(?:<div\b[^>]*class=["'][^"']*\bwoocommerce-tabs\b|<section\b[^>]*class=["'][^"']*\brelated\b|<\/main>)/i)?.[1]||null;
+  const source=summary||html.match(/<div\b[^>]*class=["'][^"']*\bproduct\b[^"']*["'][^>]*>([\s\S]*?)<\/main>/i)?.[1];
+  if(!source)return null;
+  const itemprop=source.match(/<meta\b[^>]*itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i)||source.match(/<meta\b[^>]*content=["']([\d.,]+)["'][^>]*itemprop=["']price["']/i);
+  const priceArea=source.match(/<p\b[^>]*class=["'][^"']*\bprice\b[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)?.[1]||'';
+  const active=priceArea.match(/<ins\b[^>]*>([\s\S]*?)<\/ins>/i)?.[1]||priceArea.replace(/<del\b[^>]*>[\s\S]*?<\/del>/gi,'');
+  const raw=itemprop?.[1]||active.match(/<bdi\b[^>]*>([\s\S]*?)<\/bdi>/i)?.[1]?.replace(/<[^>]+>/g,'').replace(/&nbsp;|&#160;/gi,' ')||'';
+  if(!raw||(!itemprop&&!/₴|грн|UAH/i.test(active)))return null;
+  const cleaned=raw.replace(/[\s\u00a0₴]/g,'').replace(/[^\d,.]/g,'');
+  const number=cleaned.includes(',')&&cleaned.includes('.')?cleaned.replace(/,/g,''):cleaned.replace(',','.');
+  const price=Number(number);
+  return Number.isFinite(price)&&price>0?{price,currency:'UAH'}:null;
+}
 function parseOffer(p){let offers=p?.offers;if(Array.isArray(offers))offers=offers[0];if(offers?.offers&&Array.isArray(offers.offers))offers=offers.offers[0];if(!offers||typeof offers!=='object')return {};const raw=offers.price??offers.priceSpecification?.price??offers.lowPrice;const price=raw==null?null:Number(String(raw).replace(',','.'));const currency=offers.priceCurrency||offers.priceSpecification?.priceCurrency||null;const availability=String(offers.availability||'').toLowerCase();const stock=availability.includes('instock')?'yes':availability.includes('outofstock')||availability.includes('soldout')?'no':'unknown';return {price:Number.isFinite(price)&&price>=0?price:null,currency:/^[A-Z]{3}$/.test(currency||'')?currency:null,stock}}
 // Zara Home public catalog endpoint. UA and PL identifiers captured from store Network requests.
 const ZARA_MARKETS = {
@@ -83,16 +99,16 @@ exports.handler=async event=>{
     }
     // Do not use the Ukrainian catalog for Polish, Spanish or other country prices.
     const res=await fetch(url.toString(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html'},signal:AbortSignal.timeout(10000),redirect:'manual'});
-    if(!res.ok)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${res.status}`,diagnostics:{httpStatus:res.status,catalogError}})};
+    if(!res.ok)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${res.status}`,diagnostics:{httpStatus:res.status,catalogError,retryAfter:res.status===429?(res.headers.get('retry-after')||null):null}})};
     const html=(await res.text()).slice(0,2500000);
     const p=jsonld(html);
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
     const image=ecwidImage(html,url)||[p?.image,meta(html,'og:image'),meta(html,'twitter:image')].map(candidate=>imageUrl(candidate,url)).find(Boolean)||null;
-    const offer={...metaPrice(html),...Object.fromEntries(Object.entries(parseOffer(p)).filter(([k,v])=>v!==null&&v!==undefined))};
+    const offer={...(artHallPrice(html,url)||{}),...metaPrice(html),...Object.fromEntries(Object.entries(parseOffer(p)).filter(([k,v])=>v!==null&&v!==undefined))};
     // Zara HTML metadata may describe a different variant; never substitute its image/price.
     const variantSafe=!variant;
     return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null}})};
   }catch(err){return {statusCode:200,headers,body:JSON.stringify({ok:false,message:'Could not read store page',diagnostics:{error:String(err.message||err)}})}}
 };
 // Exposed only for local tests; not used by Netlify runtime.
-exports._test={zaraVariant,parseZaraCatalog,ecwidImage};
+exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice};
