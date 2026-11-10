@@ -1,10 +1,10 @@
 // Best-effort extraction of public product data. No guessed prices, stock or images.
-const allowed = new Set(['www.zarahome.com','zarahome.com','cendre.com.au','www.cendre.com.au','www.breda.com','breda.com','kachorovska.com','www.kachorovska.com','poc.com','www.poc.com','damnjewelry.com','www.damnjewelry.com']);
+const allowed = new Set(['www.zarahome.com','zarahome.com','cendre.com.au','www.cendre.com.au','www.breda.com','breda.com','kachorovska.com','www.kachorovska.com','poc.com','www.poc.com','damnjewelry.com','www.damnjewelry.com','www.manucurist.com','manucurist.com','www.art-hall.store','art-hall.store','guniaproject.com.ua','www.guniaproject.com.ua']);
 const decode = s => String(s||'').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 function meta(html,key){for(const tag of html.match(/<meta\b[^>]*>/gi)||[]){const attrs={};for(const m of tag.matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g))attrs[m[1].toLowerCase()]=m[3];if(attrs.property===key||attrs.name===key)return decode(attrs.content||'')}return null}
 function productNodes(obj,out=[]){if(!obj||typeof obj!=='object')return out;if(Array.isArray(obj)){for(const v of obj)productNodes(v,out);return out}const t=obj['@type'];if((Array.isArray(t)?t:[t]).some(v=>typeof v==='string'&&v.toLowerCase()==='product'))out.push(obj);if(obj['@graph'])productNodes(obj['@graph'],out);return out}
 function jsonld(html){const nodes=[];for(const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)){try{productNodes(JSON.parse(match[1].trim()),nodes)}catch{}}return nodes[0]||null}
-function imageUrl(value,base){let v=Array.isArray(value)?value[0]:value;if(v&&typeof v==='object')v=v.url||v.contentUrl;if(typeof v!=='string'||!v.trim()||v.trim().toLowerCase()==='null')return null;try{const u=new URL(v,base);return u.protocol==='https:'&&u.href!==base.href&&u.pathname!==base.pathname&&(u.hostname===base.hostname||(['damnjewelry.com','www.damnjewelry.com'].includes(base.hostname)&&/^(?:images-cdn\.ecwid\.com|d2j6dbq0eux0bg\.cloudfront\.net)$/.test(u.hostname))||(/(^|\.)zarahome\.com$/.test(base.hostname)&&/^(?:static\.zarahome\.net|static\.zarahome\.com|www\.zarahome\.com|zarahome\.com)$/.test(u.hostname)))&&!/\/null(?:[?#]|$)/i.test(u.pathname)?u.href:null}catch{return null}}
+function imageUrl(value,base){let v=Array.isArray(value)?value[0]:value;if(v&&typeof v==='object')v=v.url||v.contentUrl;if(typeof v!=='string'||!v.trim()||v.trim().toLowerCase()==='null')return null;try{const u=new URL(v,base);return u.protocol==='https:'&&u.href!==base.href&&u.pathname!==base.pathname&&(u.hostname===base.hostname||(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com'].includes(base.hostname)&&u.hostname==='cdn.shopify.com'&&u.pathname.startsWith('/s/files/'))||(['damnjewelry.com','www.damnjewelry.com'].includes(base.hostname)&&/^(?:images-cdn\.ecwid\.com|d2j6dbq0eux0bg\.cloudfront\.net)$/.test(u.hostname))||(/(^|\.)zarahome\.com$/.test(base.hostname)&&/^(?:static\.zarahome\.net|static\.zarahome\.com|www\.zarahome\.com|zarahome\.com)$/.test(u.hostname)))&&!/\/null(?:[?#]|$)/i.test(u.pathname)?u.href:null}catch{return null}}
 // Ecwid pages can expose the exact product photo in embedded HTML rather than JSON-LD.
 function ecwidImage(html,pageUrl){
   if(!['damnjewelry.com','www.damnjewelry.com'].includes(pageUrl.hostname))return null;
@@ -87,7 +87,7 @@ exports.handler=async event=>{
     const html=(await res.text()).slice(0,2500000);
     const p=jsonld(html);
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
-    const image=ecwidImage(html,url)||imageUrl(p?.image||meta(html,'og:image')||meta(html,'twitter:image'),url);
+    const image=ecwidImage(html,url)||[p?.image,meta(html,'og:image'),meta(html,'twitter:image')].map(candidate=>imageUrl(candidate,url)).find(Boolean)||null;
     const offer={...metaPrice(html),...Object.fromEntries(Object.entries(parseOffer(p)).filter(([k,v])=>v!==null&&v!==undefined))};
     // Zara HTML metadata may describe a different variant; never substitute its image/price.
     const variantSafe=!variant;
