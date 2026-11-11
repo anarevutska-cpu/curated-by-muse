@@ -1,10 +1,10 @@
 // Best-effort extraction of public product data. No guessed prices, stock or images.
-const allowed = new Set(['www.zarahome.com','zarahome.com','cendre.com.au','www.cendre.com.au','www.breda.com','breda.com','kachorovska.com','www.kachorovska.com','poc.com','www.poc.com','damnjewelry.com','www.damnjewelry.com','www.manucurist.com','manucurist.com','www.art-hall.store','art-hall.store','etnodim.ua','www.etnodim.ua','shypelyk.com','www.shypelyk.com','guniaproject.com.ua','www.guniaproject.com.ua']);
+const allowed = new Set(['www.zarahome.com','zarahome.com','cendre.com.au','www.cendre.com.au','www.breda.com','breda.com','kachorovska.com','www.kachorovska.com','poc.com','www.poc.com','damnjewelry.com','www.damnjewelry.com','www.manucurist.com','manucurist.com','www.art-hall.store','art-hall.store','etnodim.ua','www.etnodim.ua','shypelyk.com','www.shypelyk.com','etoile.com','www.etoile.com','guniaproject.com.ua','www.guniaproject.com.ua']);
 const decode = s => String(s||'').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 function meta(html,key){for(const tag of html.match(/<meta\b[^>]*>/gi)||[]){const attrs={};for(const m of tag.matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g))attrs[m[1].toLowerCase()]=m[3];if(attrs.property===key||attrs.name===key)return decode(attrs.content||'')}return null}
 function productNodes(obj,out=[]){if(!obj||typeof obj!=='object')return out;if(Array.isArray(obj)){for(const v of obj)productNodes(v,out);return out}const t=obj['@type'];if((Array.isArray(t)?t:[t]).some(v=>typeof v==='string'&&v.toLowerCase()==='product'))out.push(obj);if(obj['@graph'])productNodes(obj['@graph'],out);return out}
 function jsonld(html){const nodes=[];for(const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)){try{productNodes(JSON.parse(match[1].trim()),nodes)}catch{}}return nodes[0]||null}
-function imageUrl(value,base){let v=Array.isArray(value)?value[0]:value;if(v&&typeof v==='object')v=v.url||v.contentUrl;if(typeof v!=='string'||!v.trim()||v.trim().toLowerCase()==='null')return null;try{const u=new URL(v,base);return u.protocol==='https:'&&u.href!==base.href&&u.pathname!==base.pathname&&(u.hostname===base.hostname||(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com'].includes(base.hostname)&&u.hostname==='cdn.shopify.com'&&u.pathname.startsWith('/s/files/'))||(['damnjewelry.com','www.damnjewelry.com'].includes(base.hostname)&&/^(?:images-cdn\.ecwid\.com|d2j6dbq0eux0bg\.cloudfront\.net)$/.test(u.hostname))||(/(^|\.)zarahome\.com$/.test(base.hostname)&&/^(?:static\.zarahome\.net|static\.zarahome\.com|www\.zarahome\.com|zarahome\.com)$/.test(u.hostname)))&&!/\/null(?:[?#]|$)/i.test(u.pathname)?u.href:null}catch{return null}}
+function imageUrl(value,base){let v=Array.isArray(value)?value[0]:value;if(v&&typeof v==='object')v=v.url||v.contentUrl;if(typeof v!=='string'||!v.trim()||v.trim().toLowerCase()==='null')return null;try{const u=new URL(v,base);return u.protocol==='https:'&&u.href!==base.href&&u.pathname!==base.pathname&&(u.hostname===base.hostname||(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com','etoile.com','www.etoile.com'].includes(base.hostname)&&u.hostname==='cdn.shopify.com'&&u.pathname.startsWith('/s/files/'))||(['damnjewelry.com','www.damnjewelry.com'].includes(base.hostname)&&/^(?:images-cdn\.ecwid\.com|d2j6dbq0eux0bg\.cloudfront\.net)$/.test(u.hostname))||(/(^|\.)zarahome\.com$/.test(base.hostname)&&/^(?:static\.zarahome\.net|static\.zarahome\.com|www\.zarahome\.com|zarahome\.com)$/.test(u.hostname)))&&!/\/null(?:[?#]|$)/i.test(u.pathname)?u.href:null}catch{return null}}
 // Ecwid pages can expose the exact product photo in embedded HTML rather than JSON-LD.
 function ecwidImage(html,pageUrl){
   if(!['damnjewelry.com','www.damnjewelry.com'].includes(pageUrl.hostname))return null;
@@ -106,12 +106,13 @@ async function fetchZaraCatalog(variant){
   return parseZaraCatalog(data,variant,market.currency);
 }
 
-const SHOPIFY_HOSTS=new Set(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com']);
+const SHOPIFY_HOSTS=new Set(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com','etoile.com','www.etoile.com']);
 function shopifyCatalogUrl(url){
   if(!SHOPIFY_HOSTS.has(url.hostname))return null;
-  const match=url.pathname.match(/^(\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?products\/)([a-z0-9][a-z0-9-]*)\/?$/i);
+  const match=url.pathname.match(/^\/(?:([a-z]{2}(?:-[a-z]{2})?)\/)?(?:collections\/[a-z0-9-]+\/)?products\/([a-z0-9][a-z0-9-]*)\/?$/i);
   if(!match)return null;
-  return new URL(match[1]+match[2]+'.js',url.origin);
+  const locale=match[1]?'/'+match[1]:'';
+  return new URL(locale+'/products/'+match[2]+'.js',url.origin);
 }
 function parseShopifyProduct(product,pageUrl){
   if(!product||typeof product!=='object'||!Array.isArray(product.variants))return null;
