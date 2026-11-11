@@ -68,3 +68,18 @@ test('WooCommerce parser rejects category pages', () => {
   const html = '<body class="woocommerce"><div class="summary entry-summary"><p class="price"><bdi>900 ₴</bdi></p></div></body>';
   assert.equal(_test.parseWooCommerce(html, new URL('https://example-shop.com/shop/')), null);
 });
+
+test('Price and currency are selected together from one source', () => {
+  const selected = _test.choosePrice({price:100,currency:null},{price:120,currency:'UAH'},{price:90,currency:'UAH'});
+  assert.deepEqual(selected,{price:120,currency:'UAH',source:'meta'});
+});
+
+test('Missing currency never inherits a currency from a different source', () => {
+  const selected = _test.choosePrice({price:100,currency:null},{},{});
+  assert.deepEqual(selected,{price:null,currency:null,source:'none'});
+});
+
+test('Structured product price and currency take priority as a pair', () => {
+  const selected = _test.choosePrice({price:75,currency:'EUR'},{price:100,currency:'UAH'},{price:120,currency:'UAH'});
+  assert.deepEqual(selected,{price:75,currency:'EUR',source:'jsonld'});
+});
