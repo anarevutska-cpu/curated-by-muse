@@ -83,3 +83,23 @@ test('Structured product price and currency take priority as a pair', () => {
   const selected = _test.choosePrice({price:75,currency:'EUR'},{price:100,currency:'UAH'},{price:120,currency:'UAH'});
   assert.deepEqual(selected,{price:75,currency:'EUR',source:'jsonld'});
 });
+
+test('Shopify URL maps only exact product handles to public JSON', () => {
+  assert.equal(_test.shopifyCatalogUrl(new URL('https://guniaproject.com.ua/products/velikodnya-maslyanka-vesna')).href,'https://guniaproject.com.ua/products/velikodnya-maslyanka-vesna.js');
+  assert.equal(_test.shopifyCatalogUrl(new URL('https://www.manucurist.com/en/products/active-starter-kit-gift-set')).href,'https://www.manucurist.com/en/products/active-starter-kit-gift-set.js');
+  assert.equal(_test.shopifyCatalogUrl(new URL('https://guniaproject.com.ua/collections/all')),null);
+});
+test('Shopify parser preserves unknown price without a verified currency', () => {
+  const data={title:'Butter dish',featured_image:'https://cdn.shopify.com/s/files/1/test.jpg',variants:[{id:12,price:380000,available:true}]};
+  const result=_test.parseShopifyProduct(data,new URL('https://guniaproject.com.ua/products/velikodnya-maslyanka-vesna'));
+  assert.equal(result.price,null);
+  assert.equal(result.stock,'yes');
+  assert.equal(result.diagnostics.matchedVariant,'12');
+});
+test('Shopify parser requires exact variant match', () => {
+  const data={title:'Kit',currency:'EUR',variants:[{id:12,price:5900,available:true},{id:13,price:6200,available:false}]};
+  const result=_test.parseShopifyProduct(data,new URL('https://www.manucurist.com/en/products/active-starter-kit-gift-set?variant=13'));
+  assert.equal(result.price,62);
+  assert.equal(result.stock,'no');
+  assert.equal(_test.parseShopifyProduct(data,new URL('https://www.manucurist.com/en/products/active-starter-kit-gift-set?variant=99')),null);
+});
