@@ -46,3 +46,25 @@ test('Catalog parser rejects mismatched variant', () => {
   };
   assert.throws(() => _test.parseZaraCatalog(obj, { article: '41193121', color: '251' }, 'PLN'), /different variant/);
 });
+
+
+test('WooCommerce parser extracts a price on another supported store domain', () => {
+  const html = '<html><body class="woocommerce"><div class="summary entry-summary"><p class="price"><span class="woocommerce-Price-amount amount"><bdi>1 250,00 <span>₴</span></bdi></span></p></div></body></html>';
+  const result = _test.parseWooCommerce(html, new URL('https://example-shop.com/product/ceramic-plate/'));
+  assert.deepEqual(result, { price: 1250, currency: 'UAH' });
+});
+
+test('WooCommerce parser prefers the current sale price over crossed-out price', () => {
+  const html = '<body class="woocommerce"><div class="summary entry-summary"><p class="price"><del><bdi>2000 ₴</bdi></del><ins><bdi>1500 ₴</bdi></ins></p></div></body>';
+  assert.deepEqual(_test.parseWooCommerce(html, new URL('https://example-shop.com/product/plate/')), { price: 1500, currency: 'UAH' });
+});
+
+test('WooCommerce parser does not use recommendations without a product summary', () => {
+  const html = '<body class="woocommerce"><section class="related"><p class="price"><bdi>900 ₴</bdi></p></section></body>';
+  assert.equal(_test.parseWooCommerce(html, new URL('https://example-shop.com/product/plate/')), null);
+});
+
+test('WooCommerce parser rejects category pages', () => {
+  const html = '<body class="woocommerce"><div class="summary entry-summary"><p class="price"><bdi>900 ₴</bdi></p></div></body>';
+  assert.equal(_test.parseWooCommerce(html, new URL('https://example-shop.com/shop/')), null);
+});
