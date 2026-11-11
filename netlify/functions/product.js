@@ -157,12 +157,12 @@ exports.handler=async event=>{
     // Respect store access restrictions; never retry alternate paths after 403/429.
     if(shopifyCatalogUrl(url)){
       const shopify=await fetchShopifyProduct(url);
-      if(shopify?.blocked)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${shopify.httpStatus}`,diagnostics:{httpStatus:shopify.httpStatus,retryAfter:shopify.retryAfter,source:'shopify-public-product'}})};
+      if(shopify?.blocked)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${shopify.httpStatus}`,diagnostics:{httpStatus:shopify.httpStatus,retryAfter:shopify.retryAfter,source:'shopify-public-product',contentType:null,requestKind:'server-to-store',checkedAt:new Date().toISOString()}})};
       if(shopify?.product)return {statusCode:200,headers,body:JSON.stringify({ok:true,...shopify.product,checkedAt:new Date().toISOString(),message:'Shopify public product data'})};
     }
     // Do not use the Ukrainian catalog for Polish, Spanish or other country prices.
     const res=await fetch(url.toString(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html'},signal:AbortSignal.timeout(10000),redirect:'manual'});
-    if(!res.ok)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${res.status}`,diagnostics:{httpStatus:res.status,catalogError,retryAfter:res.status===429?(res.headers.get('retry-after')||null):null}})};
+    if(!res.ok)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${res.status}`,diagnostics:{httpStatus:res.status,catalogError,retryAfter:res.status===429?(res.headers.get('retry-after')||null):null,source:'html-fallback',contentType:res.headers.get('content-type')||null,requestKind:'server-to-store',checkedAt:new Date().toISOString()}})};
     const html=(await res.text()).slice(0,2500000);
     const p=jsonld(html);
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
