@@ -22,8 +22,9 @@ function ecwidImage(html,pageUrl){
 }
 function metaPrice(html){const amount=meta(html,'product:price:amount')||meta(html,'og:price:amount');const currency=meta(html,'product:price:currency')||meta(html,'og:price:currency');if(!amount||!currency)return {};const n=Number(String(amount).replace(',','.'));return Number.isFinite(n)&&n>=0&&/^[A-Z]{3}$/.test(currency)?{price:n,currency}:{} }
 // WooCommerce: use price from the single product's own summary, never from recommendations.
-function artHallPrice(html,pageUrl){
-  if(!['art-hall.store','www.art-hall.store'].includes(pageUrl.hostname)||!pageUrl.pathname.startsWith('/product/'))return null;
+function parseWooCommerce(html,pageUrl){
+  if(!/^\/product\/[^/]+\/?$/i.test(pageUrl.pathname))return null;
+  if(!/woocommerce|wc-single-product|product-type-simple/i.test(html))return null;
   // Restrict extraction to the first product summary; never take prices from recommendations.
   const start=html.search(/<div\b[^>]*class=["'][^"']*\b(?:entry-summary|summary)\b[^"']*["'][^>]*>/i);
   if(start<0)return null;
@@ -37,6 +38,10 @@ function artHallPrice(html,pageUrl){
   const normalized=raw.includes(',')&&raw.includes('.')?raw.replace(/\./g,'').replace(',','.'):raw.replace(',','.');
   const price=Number(normalized);
   return Number.isFinite(price)&&price>0?{price,currency:'UAH'}:null;
+}
+function artHallPrice(html,pageUrl){
+  if(!['art-hall.store','www.art-hall.store'].includes(pageUrl.hostname))return null;
+  return parseWooCommerce(html,pageUrl);
 }
 function artHallPriceDiagnostics(html,pageUrl){
   if(!['art-hall.store','www.art-hall.store'].includes(pageUrl.hostname))return null;
@@ -112,11 +117,11 @@ exports.handler=async event=>{
     const p=jsonld(html);
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
     const image=ecwidImage(html,url)||[p?.image,meta(html,'og:image'),meta(html,'twitter:image')].map(candidate=>imageUrl(candidate,url)).find(Boolean)||null;
-    const structured=parseOffer(p);const metadata=metaPrice(html);const artPrice=artHallPrice(html,url);const offer={...artPrice,...metadata,...Object.fromEntries(Object.entries(structured).filter(([k,v])=>v!==null&&v!==undefined))};
+    const structured=parseOffer(p);const metadata=metaPrice(html);const wooPrice=parseWooCommerce(html,url);const offer={...wooPrice,...metadata,...Object.fromEntries(Object.entries(structured).filter(([k,v])=>v!==null&&v!==undefined))};
     // Zara HTML metadata may describe a different variant; never substitute its image/price.
     const variantSafe=!variant;
-    return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null,priceSource:structured.price!=null&&structured.currency?'jsonld':metadata.price!=null?'meta':artPrice?'woocommerce':'none',artHall:artHallPriceDiagnostics(html,url)}})};
+    return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null,priceSource:structured.price!=null&&structured.currency?'jsonld':metadata.price!=null?'meta':wooPrice?'woocommerce':'none',artHall:artHallPriceDiagnostics(html,url)}})};
   }catch(err){return {statusCode:200,headers,body:JSON.stringify({ok:false,message:'Could not read store page',diagnostics:{error:String(err.message||err)}})}}
 };
 // Exposed only for local tests; not used by Netlify runtime.
-exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics};
+exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce};
