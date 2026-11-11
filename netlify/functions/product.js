@@ -105,6 +105,39 @@ async function fetchZaraCatalog(variant){
   const data=await response.json();
   return parseZaraCatalog(data,variant,market.currency);
 }
+
+const SHOPIFY_HOSTS=new Set(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com']);
+function shopifyCatalogUrl(url){
+  if(!SHOPIFY_HOSTS.has(url.hostname))return null;
+  const match=url.pathname.match(/^(\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?products\/)([a-z0-9][a-z0-9-]*)\/?$/i);
+  if(!match)return null;
+  return new URL(match[1]+match[2]+'.js',url.origin);
+}
+function parseShopifyProduct(product,pageUrl){
+  if(!product||typeof product!=='object'||!Array.isArray(product.variants))return null;
+  const variants=product.variants;
+  const id=pageUrl.searchParams.get('variant');
+  const selected=id?variants.find(v=>String(v.id)===id):variants.length===1?variants[0]:null;
+  if(id&&!selected)return null;
+  const imageCandidate=selected?.featured_image?.src||selected?.featured_image?.url||product.featured_image||product.images?.[0];
+  const image=imageUrl(imageCandidate,pageUrl);
+  const currency=typeof product.currency==='string'&&/^[A-Z]{3}$/.test(product.currency)?product.currency:null;
+  const raw=selected?.price;
+  // Shopify's public product.js returns prices in minor units, not display units.
+  const price=currency&&Number.isSafeInteger(raw)&&raw>=0?raw/100:null;
+  const stock=selected?selected.available===true?'yes':selected.available===false?'no':'unknown':'unknown';
+  return {title:typeof product.title==='string'?product.title:null,image,price,currency:price===null?null:currency,stock,diagnostics:{source:'shopify-public-product',matchedVariant:selected?String(selected.id):null,variantSelectionRequired:!selected&&variants.length>1,hasImage:!!image,hasPrice:price!==null}};
+}
+async function fetchShopifyProduct(url){
+  const endpoint=shopifyCatalogUrl(url);
+  if(!endpoint)return null;
+  const response=await fetch(endpoint.toString(),{headers:{'Accept':'application/json'},signal:AbortSignal.timeout(8500),redirect:'manual'});
+  if(response.status===429||response.status===403)return {blocked:true,httpStatus:response.status,retryAfter:response.headers.get('retry-after')||null};
+  if(!response.ok)return null;
+  if(!(response.headers.get('content-type')||'').includes('json'))return null;
+  const parsed=parseShopifyProduct(await response.json(),url);
+  return parsed?{product:parsed}:null;
+}
 exports.handler=async event=>{
   const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'};
   try{
@@ -118,6 +151,13 @@ exports.handler=async event=>{
         const result=await fetchZaraCatalog(variant);
         return {statusCode:200,headers,body:JSON.stringify({ok:true,...result,checkedAt:new Date().toISOString(),message:'Zara Home catalog API'})};
       }catch(err){catalogError=String(err.message||err)}
+    }
+    // Public storefront product JSON is used only for known Shopify product URLs.
+    // Respect store access restrictions; never retry alternate paths after 403/429.
+    if(shopifyCatalogUrl(url)){
+      const shopify=await fetchShopifyProduct(url);
+      if(shopify?.blocked)return {statusCode:200,headers,body:JSON.stringify({ok:false,message:`Store returned HTTP ${shopify.httpStatus}`,diagnostics:{httpStatus:shopify.httpStatus,retryAfter:shopify.retryAfter,source:'shopify-public-product'}})};
+      if(shopify?.product)return {statusCode:200,headers,body:JSON.stringify({ok:true,...shopify.product,checkedAt:new Date().toISOString(),message:'Shopify public product data'})};
     }
     // Do not use the Ukrainian catalog for Polish, Spanish or other country prices.
     const res=await fetch(url.toString(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html'},signal:AbortSignal.timeout(10000),redirect:'manual'});
@@ -133,4 +173,4 @@ exports.handler=async event=>{
   }catch(err){return {statusCode:200,headers,body:JSON.stringify({ok:false,message:'Could not read store page',diagnostics:{error:String(err.message||err)}})}}
 };
 // Exposed only for local tests; not used by Netlify runtime.
-exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce,choosePrice};
+exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce,choosePrice,shopifyCatalogUrl,parseShopifyProduct};
