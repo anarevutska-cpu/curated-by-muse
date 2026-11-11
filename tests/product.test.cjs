@@ -103,3 +103,13 @@ test('Shopify parser requires exact variant match', () => {
   assert.equal(result.stock,'no');
   assert.equal(_test.parseShopifyProduct(data,new URL('https://www.manucurist.com/en/products/active-starter-kit-gift-set?variant=99')),null);
 });
+
+test('Etoile collection link resolves to exact Shopify product endpoint', () => {
+  const url=new URL('https://etoile.com/collections/capsule-case/products/capsule-case?variant=56520117813620');
+  assert.equal(_test.shopifyCatalogUrl(url).href,'https://etoile.com/products/capsule-case.js');
+  const product={title:'Capsule Case',currency:'USD',variants:[{id:56520117813620,price:6500,available:true},{id:111,price:7000,available:false}]};
+  const parsed=_test.parseShopifyProduct(product,url);
+  assert.equal(parsed.diagnostics.matchedVariant,'56520117813620');
+  assert.equal(parsed.price,65);
+  assert.equal(parsed.stock,'yes');
+});
