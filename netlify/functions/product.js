@@ -38,19 +38,35 @@ function wooGalleryImages(html,pageUrl){
   return result.slice(0,8);
 }
 async function reachableImage(candidate){
-  if(!candidate)return false;
+  if(!candidate)return {ok:false,reason:'missing-url'};
   try{
     const response=await fetch(candidate,{method:'HEAD',redirect:'manual',signal:AbortSignal.timeout(4000)});
-    return response.ok&&((response.headers.get('content-type')||'').toLowerCase().startsWith('image/'));
-  }catch{return false}
+    const type=(response.headers.get('content-type')||'').toLowerCase();
+    if(response.ok&&type.startsWith('image/'))return {ok:true,method:'HEAD'};
+    // Only fall back when HEAD is unsupported; do not retry access restrictions.
+    if(![405,501].includes(response.status))return {ok:false,reason:'head-'+response.status+(response.ok?'-non-image':'')};
+    const get=await fetch(candidate,{method:'GET',headers:{Range:'bytes=0-1023'},redirect:'manual',signal:AbortSignal.timeout(4000)});
+    const getType=(get.headers.get('content-type')||'').toLowerCase();
+    if(get.ok&&getType.startsWith('image/')){
+      await get.body?.cancel();
+      return {ok:true,method:'GET'};
+    }
+    await get.body?.cancel();
+    return {ok:false,reason:'get-'+get.status+(get.ok?'-non-image':'')};
+  }catch{return {ok:false,reason:'network-error'}}
 }
 async function selectWooImage(html,pageUrl,primary){
-  if(!/^\/product\/[^/]+\/?$/i.test(pageUrl.pathname)||!/woocommerce|woocommerce-product-gallery/i.test(html))return primary;
-  const candidates=[primary,...wooGalleryImages(html,pageUrl)].filter(Boolean);
-  for(const candidate of [...new Set(candidates)].slice(0,5)){
-    if(await reachableImage(candidate))return candidate;
+  if(!/^\/product\/[^/]+\/?$/i.test(pageUrl.pathname)||!/woocommerce|woocommerce-product-gallery/i.test(html))
+    return {image:primary,diagnostics:null};
+  const gallery=wooGalleryImages(html,pageUrl);
+  const candidates=[...new Set([primary,...gallery].filter(Boolean))].slice(0,5);
+  const checks=[];
+  for(const candidate of candidates){
+    const result=await reachableImage(candidate);
+    checks.push({method:result.method||null,reason:result.reason||null});
+    if(result.ok)return {image:candidate,diagnostics:{galleryCandidates:gallery.length,checked:checks.length,selectedFromGallery:candidate!==primary,checks}};
   }
-  return null;
+  return {image:null,diagnostics:{galleryCandidates:gallery.length,checked:checks.length,checks}};
 }
 function metaPrice(html){const amount=meta(html,'product:price:amount')||meta(html,'og:price:amount');const currency=meta(html,'product:price:currency')||meta(html,'og:price:currency');if(!amount||!currency)return {};const n=Number(String(amount).replace(',','.'));return Number.isFinite(n)&&n>=0&&/^[A-Z]{3}$/.test(currency)?{price:n,currency}:{} }
 // WooCommerce: use price from the single product's own summary, never from recommendations.
@@ -199,12 +215,12 @@ exports.handler=async event=>{
     const p=jsonld(html);
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
     const primaryImage=ecwidImage(html,url)||[p?.image,meta(html,'og:image'),meta(html,'twitter:image')].map(candidate=>imageUrl(candidate,url)).find(Boolean)||null;
-    const image=await selectWooImage(html,url,primaryImage);
+    const selectedImage=await selectWooImage(html,url,primaryImage);const image=selectedImage.image;
     const structured=parseOffer(p);const metadata=metaPrice(html);const wooPrice=parseWooCommerce(html,url);const verifiedPrice=choosePrice(structured,metadata,wooPrice);const offer={...verifiedPrice,stock:structured.stock||'unknown'};
     // Zara HTML metadata may describe a different variant; never substitute its image/price.
     const variantSafe=!variant;
-    return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null,priceSource:verifiedPrice.source,artHall:artHallPriceDiagnostics(html,url)}})};
+    return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null,priceSource:verifiedPrice.source,imageCheck:selectedImage.diagnostics,artHall:artHallPriceDiagnostics(html,url)}})};
   }catch(err){return {statusCode:200,headers,body:JSON.stringify({ok:false,message:'Could not read store page',diagnostics:{error:String(err.message||err)}})}}
 };
 // Exposed only for local tests; not used by Netlify runtime.
-exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce,choosePrice,shopifyCatalogUrl,parseShopifyProduct,wooGalleryImages,selectWooImage};
+exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce,choosePrice,shopifyCatalogUrl,parseShopifyProduct,wooGalleryImages,selectWooImage,reachableImage};
