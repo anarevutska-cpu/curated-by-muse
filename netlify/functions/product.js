@@ -1,5 +1,5 @@
 // Best-effort extraction of public product data. No guessed prices, stock or images.
-const allowed = new Set(['www.zarahome.com','zarahome.com','cendre.com.au','www.cendre.com.au','www.breda.com','breda.com','kachorovska.com','www.kachorovska.com','poc.com','www.poc.com','damnjewelry.com','www.damnjewelry.com','www.manucurist.com','manucurist.com','www.art-hall.store','art-hall.store','etnodim.ua','www.etnodim.ua','shypelyk.com','www.shypelyk.com','etoile.com','www.etoile.com','guniaproject.com.ua','www.guniaproject.com.ua']);
+const allowed = new Set(['www.zarahome.com','zarahome.com','cendre.com.au','www.cendre.com.au','www.breda.com','breda.com','kachorovska.com','www.kachorovska.com','poc.com','www.poc.com','damnjewelry.com','www.damnjewelry.com','www.manucurist.com','manucurist.com','www.art-hall.store','art-hall.store','etnodim.ua','www.etnodim.ua','shypelyk.com','www.shypelyk.com','cendre.com.au','www.cendre.com.au','etoile.com','www.etoile.com','guniaproject.com.ua','www.guniaproject.com.ua']);
 const decode = s => String(s||'').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 function meta(html,key){for(const tag of html.match(/<meta\b[^>]*>/gi)||[]){const attrs={};for(const m of tag.matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g))attrs[m[1].toLowerCase()]=m[3];if(attrs.property===key||attrs.name===key)return decode(attrs.content||'')}return null}
 function productNodes(obj,out=[]){if(!obj||typeof obj!=='object')return out;if(Array.isArray(obj)){for(const v of obj)productNodes(v,out);return out}const t=obj['@type'];if((Array.isArray(t)?t:[t]).some(v=>typeof v==='string'&&v.toLowerCase()==='product'))out.push(obj);if(obj['@graph'])productNodes(obj['@graph'],out);return out}
@@ -154,7 +154,7 @@ async function fetchZaraCatalog(variant){
   return parseZaraCatalog(data,variant,market.currency);
 }
 
-const SHOPIFY_HOSTS=new Set(['guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com','etoile.com','www.etoile.com']);
+const SHOPIFY_HOSTS=new Set(['cendre.com.au','www.cendre.com.au','guniaproject.com.ua','www.guniaproject.com.ua','manucurist.com','www.manucurist.com','etoile.com','www.etoile.com']);
 function shopifyCatalogUrl(url){
   if(!SHOPIFY_HOSTS.has(url.hostname))return null;
   const match=url.pathname.match(/^\/(?:([a-z]{2}(?:-[a-z]{2})?)\/)?(?:collections\/[a-z0-9-]+\/)?products\/([a-z0-9][a-z0-9-]*)\/?$/i);
@@ -174,8 +174,10 @@ function parseShopifyProduct(product,pageUrl){
   const raw=selected?.price;
   // Shopify's public product.js returns prices in minor units, not display units.
   const price=currency&&Number.isSafeInteger(raw)&&raw>=0?raw/100:null;
+  const compareRaw=selected?.compare_at_price;
+  const compareAtPrice=price!==null&&Number.isSafeInteger(compareRaw)&&compareRaw>raw?compareRaw/100:null;
   const stock=selected?selected.available===true?'yes':selected.available===false?'no':'unknown':'unknown';
-  return {title:typeof product.title==='string'?product.title:null,image,price,currency:price===null?null:currency,stock,diagnostics:{source:'shopify-public-product',matchedVariant:selected?String(selected.id):null,variantSelectionRequired:!selected&&variants.length>1,hasImage:!!image,hasPrice:price!==null}};
+  return {title:typeof product.title==='string'?product.title:null,image,price,compareAtPrice,currency:price===null?null:currency,stock,diagnostics:{source:'shopify-public-product',matchedVariant:selected?String(selected.id):null,variantSelectionRequired:!selected&&variants.length>1,hasImage:!!image,hasPrice:price!==null,hasCompareAtPrice:compareAtPrice!==null,currencyVerified:!!currency}};
 }
 async function fetchShopifyProduct(url){
   const endpoint=shopifyCatalogUrl(url);
