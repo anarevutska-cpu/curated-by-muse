@@ -68,6 +68,18 @@ async function selectWooImage(html,pageUrl,primary){
   }
   return {image:null,diagnostics:{galleryCandidates:gallery.length,checked:checks.length,checks}};
 }
+
+function etnodimSale(html,pageUrl){
+  if(!['etnodim.ua','www.etnodim.ua'].includes(pageUrl.hostname)||!/^\/accessories\/[a-z0-9-]+\/?$/i.test(pageUrl.pathname))return null;
+  const h1=html.search(/<h1\b/i);
+  if(h1<0)return null;
+  const section=html.slice(h1,h1+14000).split(/(?:Про товар|Товари в тому ж стилі|related-products)/i)[0];
+  const text=decode(section.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;|&#xA0;/gi,' ')).replace(/\s+/g,' ');
+  const match=text.match(/Ціна\s*:\s*([\d\s]{1,12})\s*\/\s*([\d\s]{1,12})\s*(?:грн|₴)/i);
+  if(!match)return null;
+  const original=Number(match[1].replace(/\s/g,'')),current=Number(match[2].replace(/\s/g,''));
+  return Number.isSafeInteger(original)&&Number.isSafeInteger(current)&&original>current&&current>0?{price:current,compareAtPrice:original,currency:'UAH'}:null;
+}
 function metaPrice(html){const amount=meta(html,'product:price:amount')||meta(html,'og:price:amount');const currency=meta(html,'product:price:currency')||meta(html,'og:price:currency');if(!amount||!currency)return {};const n=Number(String(amount).replace(',','.'));return Number.isFinite(n)&&n>=0&&/^[A-Z]{3}$/.test(currency)?{price:n,currency}:{} }
 // WooCommerce: use price from the single product's own summary, never from recommendations.
 function parseWooCommerce(html,pageUrl){
@@ -218,11 +230,11 @@ exports.handler=async event=>{
     const title=p?.name||meta(html,'og:title')||meta(html,'twitter:title')||null;
     const primaryImage=ecwidImage(html,url)||[p?.image,meta(html,'og:image'),meta(html,'twitter:image')].map(candidate=>imageUrl(candidate,url)).find(Boolean)||null;
     const selectedImage=await selectWooImage(html,url,primaryImage);const image=selectedImage.image;
-    const structured=parseOffer(p);const metadata=metaPrice(html);const wooPrice=parseWooCommerce(html,url);const verifiedPrice=choosePrice(structured,metadata,wooPrice);const offer={...verifiedPrice,stock:structured.stock||'unknown'};
+    const structured=parseOffer(p);const metadata=metaPrice(html);const wooPrice=parseWooCommerce(html,url);const etnodim=etnodimSale(html,url);const verifiedPrice=etnodim?{price:etnodim.price,currency:etnodim.currency,source:'etnodim-sale'}:choosePrice(structured,metadata,wooPrice);const offer={...verifiedPrice,stock:structured.stock||'unknown'};
     // Zara HTML metadata may describe a different variant; never substitute its image/price.
     const variantSafe=!variant;
-    return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null,priceSource:verifiedPrice.source,imageCheck:selectedImage.diagnostics,artHall:artHallPriceDiagnostics(html,url)}})};
+    return {statusCode:200,headers,body:JSON.stringify({ok:true,title:variantSafe?title:null,image:variantSafe?image:null,price:variantSafe?(offer.price??null):null,compareAtPrice:variantSafe?(etnodim?.compareAtPrice??null):null,currency:variantSafe?(offer.currency??null):null,stock:variantSafe?(offer.stock??'unknown'):'unknown',checkedAt:new Date().toISOString(),message:catalogError?'Zara catalog unavailable; original data preserved':variant?'Catalog not configured for this country':'Public metadata only',diagnostics:{source:'html-fallback',catalogError,region:variant?.region||null,structuredProduct:!!p,hasImage:variantSafe&&!!image,hasPrice:variantSafe&&offer.price!=null,priceSource:verifiedPrice.source,imageCheck:selectedImage.diagnostics,artHall:artHallPriceDiagnostics(html,url)}})};
   }catch(err){return {statusCode:200,headers,body:JSON.stringify({ok:false,message:'Could not read store page',diagnostics:{error:String(err.message||err)}})}}
 };
 // Exposed only for local tests; not used by Netlify runtime.
-exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce,choosePrice,shopifyCatalogUrl,parseShopifyProduct,wooGalleryImages,selectWooImage,reachableImage};
+exports._test={zaraVariant,parseZaraCatalog,ecwidImage,artHallPrice,artHallPriceDiagnostics,parseWooCommerce,choosePrice,shopifyCatalogUrl,parseShopifyProduct,wooGalleryImages,selectWooImage,reachableImage,etnodimSale};
