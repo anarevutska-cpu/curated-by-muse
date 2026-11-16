@@ -113,3 +113,49 @@ test('Etoile collection link resolves to exact Shopify product endpoint', () => 
   assert.equal(parsed.price,65);
   assert.equal(parsed.stock,'yes');
 });
+
+
+test('CENDRÉ Shopify product URL is recognized',()=>{
+  assert.equal(_test.shopifyCatalogUrl(new URL('https://cendre.com.au/products/emmeline-watch-silver')).href,'https://cendre.com.au/products/emmeline-watch-silver.js');
+});
+test('CENDRÉ sale uses selected variant price, compare-at and AUD as a matched set',()=>{
+  const product={title:'Emmeline Watch',currency:'AUD',variants:[
+    {id:10,price:14500,compare_at_price:null,available:true},
+    {id:11,price:10150,compare_at_price:14500,available:true}
+  ]};
+  const result=_test.parseShopifyProduct(product,new URL('https://cendre.com.au/products/emmeline-watch-silver?variant=11'));
+  assert.equal(result.price,101.5);
+  assert.equal(result.compareAtPrice,145);
+  assert.equal(result.currency,'AUD');
+  assert.equal(result.stock,'yes');
+});
+test('Shopify compare-at is absent when not discounted or currency is unknown',()=>{
+  const base={title:'Watch',variants:[{id:1,price:10000,compare_at_price:10000,available:true}]};
+  assert.equal(_test.parseShopifyProduct({...base,currency:'AUD'},new URL('https://cendre.com.au/products/watch')).compareAtPrice,null);
+  assert.equal(_test.parseShopifyProduct({...base,currency:'AUD',variants:[{id:1,price:10000,compare_at_price:9000}]},new URL('https://cendre.com.au/products/watch')).compareAtPrice,null);
+  assert.equal(_test.parseShopifyProduct({...base,variants:[{id:1,price:10000,compare_at_price:12000}]},new URL('https://cendre.com.au/products/watch')).compareAtPrice,null);
+});
+test('Shopify multi-variant products without a selection cannot invent a sale',()=>{
+  const p={title:'Watch',currency:'AUD',variants:[{id:1,price:10000,compare_at_price:12000},{id:2,price:15000,compare_at_price:18000}]};
+  const result=_test.parseShopifyProduct(p,new URL('https://cendre.com.au/products/watch'));
+  assert.equal(result.price,null);assert.equal(result.compareAtPrice,null);
+  assert.equal(result.diagnostics.variantSelectionRequired,true);
+});
+test('Shopify blocked or incorrect variants are never silently substituted',()=>{
+  const p={title:'Watch',currency:'AUD',variants:[{id:1,price:10000,compare_at_price:12000}]};
+  assert.equal(_test.parseShopifyProduct(p,new URL('https://cendre.com.au/products/watch?variant=2')),null);
+});
+test('WooCommerce sale price comes from product summary, not recommendations',()=>{
+  const html='<body class="woocommerce"><div class="summary entry-summary"><p class="price"><del>2 000 ₴</del><ins>1 400 ₴</ins></p></div><section class="related"><p class="price">500 ₴</p></section></body>';
+  assert.deepEqual(_test.parseWooCommerce(html,new URL('https://shypelyk.com/product/test/')),{price:1400,currency:'UAH'});
+});
+test('WooCommerce gallery extraction never uses unrelated recommendations',()=>{
+  const html='<body class="woocommerce"><div class="woocommerce-product-gallery"><img data-large_image="https://shypelyk.com/wp-content/uploads/product.webp"></div><section class="related"><img src="https://shypelyk.com/wp-content/uploads/other.webp"></section></body>';
+  const found=_test.wooGalleryImages(html,new URL('https://shypelyk.com/product/test/'));
+  assert.ok(found.includes('https://shypelyk.com/wp-content/uploads/product.webp'));
+  assert.ok(!found.includes('https://shypelyk.com/wp-content/uploads/other.webp'));
+});
+test('Store price source selection never mixes currencies or guesses values',()=>{
+  assert.deepEqual(_test.choosePrice({price:null,currency:'EUR'},{price:145,currency:'AUD'},null),{price:145,currency:'AUD',source:'meta'});
+  assert.deepEqual(_test.choosePrice({}, {}, null),{price:null,currency:null,source:'none'});
+});
