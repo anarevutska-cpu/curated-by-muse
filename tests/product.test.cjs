@@ -168,3 +168,17 @@ test('Etnodim sale is extracted only from its own product price section',()=>{
 test('Etnodim does not infer sale without a verified pair',()=>{
  assert.equal(_test.etnodimSale('<h1>Product</h1><p>Ціна: 2 000 ₴</p>',new URL('https://etnodim.ua/accessories/kyshenya-zatayenka')),null);
 });
+
+test('New supported stores accept their exact product URLs',async()=>{
+ const {handler}=require('../netlify/functions/product.js');
+ const urls=['https://aromateque.com.ua/kilian-paris-sparkling-royal-n1kb010000','https://www.notino.ua/dior/dior-vernis-creme-abricot-zmicnjujuchij-krem-dlja-nigtiv/','https://beautytime.ua/framar-polish-brush-black-680343304005'];
+ const original=global.fetch;
+ global.fetch=async()=>({ok:false,status:429,headers:{get:()=>null}});
+ try{
+   for(const url of urls){
+     const response=await handler({queryStringParameters:{url}});
+     assert.equal(response.statusCode,200);
+     assert.notEqual(JSON.parse(response.body).message,'Unsupported URL');
+   }
+ }finally{global.fetch=original}
+});
