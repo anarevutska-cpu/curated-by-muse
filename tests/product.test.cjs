@@ -159,3 +159,12 @@ test('Store price source selection never mixes currencies or guesses values',()=
   assert.deepEqual(_test.choosePrice({price:null,currency:'EUR'},{price:145,currency:'AUD'},null),{price:145,currency:'AUD',source:'meta'});
   assert.deepEqual(_test.choosePrice({}, {}, null),{price:null,currency:null,source:'none'});
 });
+
+test('Etnodim sale is extracted only from its own product price section',()=>{
+ const html='<h1>Бавовняна кишеня</h1><div>Ціна: 2 500 ₴ / 2 000 ₴</div><section>related 300 ₴</section>';
+ assert.deepEqual(_test.etnodimSale(html,new URL('https://etnodim.ua/accessories/kyshenya-zatayenka')),{price:2000,compareAtPrice:2500,currency:'UAH'});
+ assert.equal(_test.etnodimSale(html,new URL('https://etnodim.ua/other')),null);
+});
+test('Etnodim does not infer sale without a verified pair',()=>{
+ assert.equal(_test.etnodimSale('<h1>Product</h1><p>Ціна: 2 000 ₴</p>',new URL('https://etnodim.ua/accessories/kyshenya-zatayenka')),null);
+});
